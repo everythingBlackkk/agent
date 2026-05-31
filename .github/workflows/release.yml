@@ -1,0 +1,114 @@
+name: release
+
+# Triggered by pushing a version tag (v1.2.3). Also runnable by hand from
+# the Actions tab for dry-runs / re-builds. Produces standalone binaries
+# for macOS, Linux, and Windows, a SHA256SUMS file, a GitHub Release, and
+# (on tags only) an npm publish.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release against (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write # create the Release + upload assets
+  id-token: write # npm publish --provenance
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # One artifact per OS/arch. Bun cross-compiles all targets from a single
+  # Linux host, so the whole matrix runs without spinning up macOS/Windows
+  # runners — faster and cheaper than native-per-OS builds.
+  binaries:
+    name: build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-darwin-arm64
+            name: pentesterflow-darwin-arm64
+          - target: bun-darwin-x64
+            name: pentesterflow-darwin-x64
+          - target: bun-linux-x64
+            name: pentesterflow-linux-x64
+          - target: bun-linux-arm64
+            name: pentesterflow-linux-arm64
+          - target: bun-windows-x64
+            name: pentesterflow-windows-x64.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Compile standalone binary
+        run: |
+          bun build src/cli/index.ts \
+            --compile \
+            --minify \
+            --target ${{ matrix.target }} \
+            --outfile dist-bin/${{ matrix.name }}
+      - name: Checksum
+        run: cd dist-bin && sha256sum "${{ matrix.name }}" > "${{ matrix.name }}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist-bin/*
+          if-no-files-found: error
+
+  # Collect every binary + a combined SHA256SUMS into one GitHub Release.
+  # Doing this in a single job (rather than per-matrix-entry) avoids racing
+  # release creation across the matrix.
+  release:
+    name: publish github release
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-bin
+          merge-multiple: true
+      - name: Aggregate checksums
+        run: |
+          cd dist-bin
+          cat ./*.sha256 > SHA256SUMS
+          rm -f ./*.sha256
+          echo "Release assets:" && ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist-bin/*
+
+  # npm publish runs only for real tag pushes (not manual dry-runs) so a
+  # hand-triggered binary rebuild can't accidentally publish a package.
+  npm:
+    name: publish npm
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run ci
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

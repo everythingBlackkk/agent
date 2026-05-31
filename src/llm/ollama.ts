@@ -1,0 +1,212 @@
+// Ollama backend. behavior:
+// - POST /api/chat with stream=true emits ND-JSON; accumulate tool calls
+//   as they arrive (the terminal `done:true` chunk often carries an empty
+//   tool_calls slice, so relying on the last chunk drops calls).
+// - Malformed streamed chunks are logged with a preview (warn level) and
+//   skipped — silently dropping them caused tool calls to vanish.
+// - GET /api/tags for the health probe.
+
+import { warn } from '../logger/logger.js';
+import type { Client, Pinger, StreamingClient } from './client.js';
+import { classifyBackend } from './errors.js';
+import { newCallID } from './ids.js';
+import type { ChatRequest, ChatResponse, Message, ToolCall } from './types.js';
+
+interface OllamaToolCall {
+  function: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}
+
+interface OllamaMessage {
+  role: string;
+  content: string;
+  tool_calls?: OllamaToolCall[];
+}
+
+interface OllamaChatResp {
+  message?: OllamaMessage;
+  done?: boolean;
+}
+
+export class OllamaClient implements Client, StreamingClient, Pinger {
+  readonly baseURL: string;
+  readonly modelID: string;
+
+  constructor(baseURL: string, model: string) {
+    this.baseURL = baseURL || 'http://localhost:11434';
+    this.modelID = model;
+  }
+
+  name(): string {
+    return 'ollama';
+  }
+
+  model(): string {
+    return this.modelID;
+  }
+
+  async ping(signal?: AbortSignal): Promise<void> {
+    try {
+      const resp = await fetch(`${this.baseURL}/api/tags`, { method: 'GET', signal });
+      if (resp.status >= 500) {
+        throw new Error(`ollama status ${resp.status}`);
+      }
+    } catch (err) {
+      if (err instanceof Error) throw err;
+      throw new Error(String(err));
+    }
+  }
+
+  async chat(req: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
+    const body = this.encodeRequest(req, false);
+    let resp: Response;
+    try {
+      resp = await fetch(`${this.baseURL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      throw classifyBackend('ollama', err, 0, undefined);
+    }
+    const raw = await resp.text();
+    if (resp.status !== 200) {
+      throw classifyBackend('ollama', null, resp.status, raw);
+    }
+    const parsed = JSON.parse(raw) as OllamaChatResp;
+    return this.assembleResponse(parsed.message ?? { role: 'assistant', content: '' });
+  }
+
+  async chatStream(
+    req: ChatRequest,
+    onDelta: (delta: string) => void,
+    signal?: AbortSignal,
+  ): Promise<ChatResponse> {
+    const body = this.encodeRequest(req, true);
+    let resp: Response;
+    try {
+      resp = await fetch(`${this.baseURL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      throw classifyBackend('ollama', err, 0, undefined);
+    }
+    if (resp.status !== 200) {
+      const raw = await resp.text();
+      throw classifyBackend('ollama', null, resp.status, raw);
+    }
+    if (!resp.body) {
+      throw new Error('ollama: empty stream body');
+    }
+
+    let content = '';
+    const toolCalls: OllamaToolCall[] = [];
+    let skipped = 0;
+
+    for await (const line of iterLines(resp.body)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let chunk: OllamaChatResp;
+      try {
+        chunk = JSON.parse(trimmed) as OllamaChatResp;
+      } catch (err) {
+        // Defensive logging. Drop the chunk but
+        // surface enough detail to diagnose vanished tool calls.
+        skipped += 1;
+        const preview = trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+        warn('ollama: dropped malformed stream chunk', {
+          err: err instanceof Error ? err.message : String(err),
+          preview,
+          total_skipped: skipped,
+        });
+        continue;
+      }
+      if (chunk.message?.content) {
+        content += chunk.message.content;
+        onDelta(chunk.message.content);
+      }
+      if (chunk.message?.tool_calls?.length) {
+        toolCalls.push(...chunk.message.tool_calls);
+      }
+      if (chunk.done) break;
+    }
+
+    return this.assembleResponse({ role: 'assistant', content, tool_calls: toolCalls }, true);
+  }
+
+  private encodeRequest(req: ChatRequest, stream: boolean) {
+    return {
+      model: this.modelID,
+      stream,
+      messages: req.messages.map((m) => {
+        const out: OllamaMessage = { role: m.role, content: m.content };
+        if (m.toolCalls?.length) {
+          out.tool_calls = m.toolCalls.map((tc) => {
+            let args: Record<string, unknown> = {};
+            if (tc.function.arguments) {
+              try {
+                args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+              } catch {
+                args = {};
+              }
+            }
+            return { function: { name: tc.function.name, arguments: args } };
+          });
+        }
+        return out;
+      }),
+      tools: req.tools?.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.function.name,
+          description: t.function.description,
+          parameters: t.function.parameters,
+        },
+      })),
+    };
+  }
+
+  private assembleResponse(msg: OllamaMessage, _streamed = false): ChatResponse {
+    const out: Message = { role: 'assistant', content: msg.content ?? '' };
+    if (msg.tool_calls?.length) {
+      out.toolCalls = msg.tool_calls.map<ToolCall>((tc) => ({
+        id: newCallID(),
+        type: 'function',
+        function: {
+          name: tc.function.name,
+          arguments: JSON.stringify(tc.function.arguments ?? {}),
+        },
+      }));
+    }
+    return {
+      message: out,
+      finishReason: out.toolCalls?.length ? 'tool_calls' : 'stop',
+    };
+  }
+}
+
+/** Decode a byte stream into newline-delimited string chunks. */
+async function* iterLines(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx = buffer.indexOf('\n');
+    while (idx >= 0) {
+      yield buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      idx = buffer.indexOf('\n');
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.length > 0) yield buffer;
+}

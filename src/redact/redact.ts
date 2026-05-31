@@ -1,0 +1,74 @@
+// Credential redactor. Scrubs common secret shapes out of text before it
+// crosses a trust boundary the user did not intend (the LLM during
+// /compact, the markdown export during /export).
+//
+// Credential redactor: shape-preserving masks for tokens, keys, and
+// secrets. Tests in redact.test.ts pin the pattern set.
+
+// Each pattern captures the prefix in group 1 and the secret body in
+// group 2 so the prefix (e.g. "Bearer ", "AKIA") stays intact while the
+// body is masked.
+const patterns: RegExp[] = [
+  // Bearer token in Authorization header or freeform text.
+  /(bearer\s+)([A-Za-z0-9._-]{16,})/gi,
+  // Authorization: <scheme> <value> header line.
+  /(authorization:\s*)(\S+\s+\S+)/gi,
+  // AWS access key id.
+  /\b(AKIA|ASIA)([0-9A-Z]{16})\b/g,
+  // AWS secret access key adjacent to a key= marker.
+  /(aws_secret_access_key\s*[:=]\s*["']?)([A-Za-z0-9/+=]{40})/gi,
+  // GitHub personal / oauth / server tokens.
+  /\b(gh[pousr]_)([A-Za-z0-9]{36,255})\b/g,
+  // Stripe live / test keys.
+  /\b(sk_(?:live|test)_)([A-Za-z0-9]{16,})\b/g,
+  // Slack tokens.
+  /\b(xox[abprs]-)([A-Za-z0-9-]{10,})\b/g,
+  // JWTs (header.body.sig with realistic body+sig length).
+  /\b(eyJ[A-Za-z0-9_-]{8,}\.)([A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/g,
+  // Generic api_key / secret / password / token = value assignment.
+  /((?:api[_-]?key|secret|password|passwd|token)\s*[:=]\s*["']?)([A-Za-z0-9._\-+/=]{16,})/gi,
+];
+
+const privateKeyBlock =
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
+
+/**
+ * Scrubs known credential shapes from `s` and returns the redacted text.
+ * Safe to call on empty strings; returns `s` unchanged when nothing matches.
+ */
+export function apply(s: string): string {
+  if (!s) return s;
+
+  // Private key blocks are replaced wholesale — preserving prefix doesn't
+  // help and the body is unbounded.
+  let out = s.replace(
+    privateKeyBlock,
+    '-----BEGIN PRIVATE KEY-----\n[REDACTED]\n-----END PRIVATE KEY-----',
+  );
+
+  for (const pattern of patterns) {
+    out = out.replace(pattern, (_match, prefix: string, secret: string) => {
+      return prefix + mask(secret);
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Collapses a secret to a fixed redaction marker that hints at its
+ * original length without revealing it. Keeps the first and last two
+ * characters so log readers can still spot rotation churn without
+ * recovering the secret itself.
+ */
+function mask(secret: string): string {
+  if (secret.length <= 6) {
+    return '[REDACTED]';
+  }
+  const head = secret.slice(0, 2);
+  const tail = secret.slice(-2);
+  // Length bucketed to nearest 4 so subtle differences don't leak.
+  const bucket = Math.floor(secret.length / 4) * 4;
+  const dots = '·'.repeat(bucket / 4);
+  return `${head}…[REDACTED:${dots}]…${tail}`;
+}

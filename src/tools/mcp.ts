@@ -1,0 +1,246 @@
+// MCP integration via @modelcontextprotocol/sdk. Each configured MCP
+// server is spawned once at app launch, kept alive for the program's
+// lifetime (Browser MCP needs persistent state for the browser tab),
+// and its tools are auto-discovered as `mcp_<server>_<tool>`.
+
+import { createInterface } from 'node:readline';
+import { Client as MCPClient } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { MCPServerConfig } from '../config/config.js';
+import { warn } from '../logger/logger.js';
+import type { Prompter } from '../permission/permission.js';
+import { displayToolName, primaryToolArg } from './toolDisplay.js';
+import type { Tool } from './types.js';
+
+const HANDSHAKE_TIMEOUT_MS = 15_000;
+const CLOSE_DEADLINE_MS = 3_000;
+
+export class MCPSession {
+  readonly serverName: string;
+  private readonly client: MCPClient;
+  private readonly transport: StdioClientTransport;
+  private closed = false;
+
+  constructor(serverName: string, client: MCPClient, transport: StdioClientTransport) {
+    this.serverName = serverName;
+    this.client = client;
+    this.transport = transport;
+  }
+
+  static async open(server: MCPServerConfig): Promise<MCPSession> {
+    if (!server.command) throw new Error(`mcp server ${server.name} has no command`);
+    // `stderr: 'pipe'` so we can capture the child's stderr ourselves
+    // instead of letting it inherit and clutter the user's terminal.
+    // Browser MCP in particular logs a noisy infinite-recursion stack
+    // trace from its own broken close() on shutdown — this routes
+    // that (plus any real error) to our pino log file.
+    const transport = new StdioClientTransport({
+      command: server.command,
+      args: server.args,
+      env: server.env as Record<string, string> | undefined,
+      stderr: 'pipe',
+    });
+    const client = new MCPClient({ name: 'pentesterflow', version: '0.1.0' }, { capabilities: {} });
+
+    const timeout = setTimeout(() => {
+      try {
+        void transport.close();
+      } catch {
+        /* ignore */
+      }
+    }, HANDSHAKE_TIMEOUT_MS);
+    try {
+      await client.connect(transport);
+    } finally {
+      clearTimeout(timeout);
+    }
+    // After connect, transport.stderr is the child's piped stderr.
+    // Forward each line to logger.warn so real errors are still
+    // captured but the user doesn't see them in the TUI.
+    forwardStderrToLog(transport, server.name);
+    return new MCPSession(server.name, client, transport);
+  }
+
+  isClosed(): boolean {
+    return this.closed;
+  }
+
+  async listTools(): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>> {
+    const resp = await this.client.listTools();
+    return resp.tools as Array<{
+      name: string;
+      description?: string;
+      inputSchema?: unknown;
+    }>;
+  }
+
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<{ isError: boolean; content: unknown }> {
+    if (this.closed) throw new Error(`mcp session ${this.serverName} is closed`);
+    const result = await this.client.callTool({ name, arguments: args }, undefined, { signal });
+    return {
+      isError: Boolean(result.isError),
+      content: result.content,
+    };
+  }
+
+  /** Close the session with a deadline so a misbehaving child can't hang shutdown. */
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    const closeOp = (async () => {
+      try {
+        await this.client.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await this.transport.close();
+      } catch {
+        /* ignore */
+      }
+    })();
+    await Promise.race([
+      closeOp,
+      new Promise<void>((resolve) =>
+        setTimeout(() => {
+          warn('mcp: close deadline exceeded; abandoning child', { server: this.serverName });
+          resolve();
+        }, CLOSE_DEADLINE_MS),
+      ),
+    ]);
+  }
+}
+
+/** Wrap a discovered MCP tool as a pentesterflow Tool the registry knows about. */
+export class MCPTool implements Tool {
+  private readonly session: MCPSession;
+  private readonly toolName: string;
+  private readonly remoteName: string;
+  private readonly desc: string;
+  private readonly schemaObj: Record<string, unknown>;
+
+  constructor(
+    session: MCPSession,
+    toolName: string,
+    remoteName: string,
+    desc: string,
+    schemaObj: Record<string, unknown>,
+  ) {
+    this.session = session;
+    this.toolName = toolName;
+    this.remoteName = remoteName;
+    this.desc = desc;
+    this.schemaObj = schemaObj;
+  }
+
+  name(): string {
+    return this.toolName;
+  }
+
+  description(): string {
+    return this.desc
+      ? `MCP ${this.session.serverName}: ${this.desc}`
+      : `MCP tool from ${this.session.serverName}`;
+  }
+
+  schema(): Record<string, unknown> {
+    return this.schemaObj;
+  }
+
+  requiresPermission(): boolean {
+    return true;
+  }
+
+  summarize(args: Record<string, unknown>): { summary: string; detail: string } {
+    // Tools with a single obvious argument (e.g. the browser tool's `url`)
+    // show a friendly label + bare value instead of raw JSON.
+    const primary = primaryToolArg(this.toolName, args);
+    if (primary !== null) {
+      return { summary: displayToolName(this.toolName), detail: primary };
+    }
+    return { summary: `mcp: ${this.toolName}`, detail: JSON.stringify(args, null, 2) };
+  }
+
+  async run(args: Record<string, unknown>, signal: AbortSignal, _p: Prompter): Promise<string> {
+    const result = await this.session.callTool(this.remoteName, args, signal);
+    const body = JSON.stringify(result.content, null, 2);
+    if (result.isError) {
+      throw new Error(`mcp tool ${this.remoteName} reported isError: ${body}`);
+    }
+    return body;
+  }
+}
+
+/**
+ * Spawn `server`, perform the initialize handshake, and return both the
+ * live session and the discovered tools (wrapped for our registry). The
+ * caller owns the session and must close() it on shutdown.
+ */
+export async function discoverMCPTools(
+  server: MCPServerConfig,
+): Promise<{ session: MCPSession; tools: MCPTool[] }> {
+  const session = await MCPSession.open(server);
+  try {
+    const remote = await session.listTools();
+    const tools: MCPTool[] = [];
+    for (const t of remote) {
+      if (!t.name) continue;
+      const schema = (t.inputSchema as Record<string, unknown> | undefined) ?? {
+        type: 'object',
+        additionalProperties: true,
+      };
+      const wrapped = new MCPTool(
+        session,
+        `mcp_${sanitize(server.name)}_${sanitize(t.name)}`,
+        t.name,
+        t.description ?? '',
+        schema,
+      );
+      tools.push(wrapped);
+    }
+    return { session, tools };
+  } catch (err) {
+    await session.close();
+    throw err;
+  }
+}
+
+/**
+ * Wire the MCP child's piped stderr into our pino log file so the
+ * user's terminal stays quiet. Each non-empty line is logged with the
+ * server name attached for grep-ability. Silently no-ops if the
+ * transport hasn't exposed a stderr stream (some adapter versions
+ * don't, or stderr was configured differently).
+ */
+function forwardStderrToLog(transport: StdioClientTransport, serverName: string): void {
+  // The SDK types `stderr` as `Stream | null` (Node's base Stream),
+  // but in practice it's always a Readable when constructed with
+  // `stderr: 'pipe'`. We narrow via unknown to avoid a structural-type
+  // mismatch; if the SDK ever swaps the field type we'd catch it at
+  // runtime as `.on` being undefined.
+  const stream = (transport as unknown as { stderr?: NodeJS.ReadableStream | null }).stderr;
+  if (!stream || typeof (stream as { on?: unknown }).on !== 'function') return;
+  const rl = createInterface({ input: stream });
+  rl.on('line', (line) => {
+    const trimmed = line.trimEnd();
+    if (trimmed) warn('mcp child stderr', { server: serverName, line: trimmed });
+  });
+  // The readline closes itself when the stream EOFs (process exit); no
+  // explicit cleanup needed.
+  rl.on('error', () => {
+    /* ignore — child gone */
+  });
+}
+
+function sanitize(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    if (/[A-Za-z0-9_]/.test(ch)) out += ch;
+    else out += '_';
+  }
+  return out.replace(/^_+|_+$/g, '');
+}

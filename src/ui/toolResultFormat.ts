@@ -1,0 +1,157 @@
+// Colorize the body of a tool-result for the transcript. The split:
+// exit code stands out (green
+// when 0, red otherwise), stdout / stderr labels are dim so they don't
+// fight the actual output, and stderr content is tinted red. Plain
+// text passes through unchanged so non-shell tools (file_read,
+// confirm_finding) keep their format intact.
+
+import { Chalk } from 'chalk';
+
+const chalk = new Chalk({ level: 3 });
+
+const EXIT_RE = /^exit:\s*(-?\d+|timeout[^\n]*)/;
+const STDOUT_LABEL = 'stdout:';
+const STDERR_LABEL = 'stderr:';
+
+/**
+ * Return `body` styled for the transcript. Recognises the shape that
+ * ShellTool / BashTool produce:
+ *
+ *   exit: 0
+ *   stdout:
+ *   <captured stdout>
+ *   stderr:
+ *   <captured stderr>
+ *
+ * Lines outside the recognised structure pass through unchanged.
+ */
+export function colorizeShellResult(body: string): string {
+  if (!body) return body;
+  const lines = body.split('\n');
+  let section: 'pre' | 'stdout' | 'stderr' = 'pre';
+  return lines
+    .map((line) => {
+      const exitMatch = line.match(EXIT_RE);
+      if (exitMatch) {
+        const tail = line.slice(exitMatch[0].length);
+        const code = exitMatch[1] ?? '';
+        const isSuccess = code === '0';
+        const isTimeout = code.startsWith('timeout');
+        const styledCode = isSuccess
+          ? chalk.green(code)
+          : isTimeout
+            ? chalk.yellow(code)
+            : chalk.red(code);
+        return `${chalk.dim('exit:')} ${styledCode}${tail}`;
+      }
+      if (line === STDOUT_LABEL) {
+        section = 'stdout';
+        return chalk.dim(STDOUT_LABEL);
+      }
+      if (line === STDERR_LABEL) {
+        section = 'stderr';
+        return chalk.dim(STDERR_LABEL);
+      }
+      // stderr section gets a subtle red tint so the eye spots warnings
+      // / errors without re-reading. stdout passes through verbatim.
+      if (section === 'stderr' && line) return chalk.red(line);
+      return line;
+    })
+    .join('\n');
+}
+
+/**
+ * Detect whether a tool-result body looks like the structured shell
+ * output (exit:/stdout:/stderr: shape) — used by state.ts to decide
+ * whether to run it through colorizeShellResult vs leave it plain.
+ */
+export function looksLikeShellResult(body: string): boolean {
+  return EXIT_RE.test(body) || body.startsWith(STDOUT_LABEL) || body.includes('\nstdout:');
+}
+
+// ---------------------------------------------------------------------------
+// Smart tool-result view — extract readable text, then collapse anything long
+// behind a head preview the user can expand with Ctrl-O. Keeps the transcript
+// scannable when a single MCP call (e.g. a browser accessibility snapshot)
+// returns kilobytes of YAML.
+// ---------------------------------------------------------------------------
+
+/** Lines of the body kept visible while collapsed. */
+const HEAD_LINES = 12;
+/** Hard char ceiling on the collapsed preview (guards one huge single line). */
+const PREVIEW_CHAR_CAP = 1000;
+/** A body longer than either threshold becomes collapsible. */
+const COLLAPSE_LINE_THRESHOLD = 16;
+const COLLAPSE_CHAR_THRESHOLD = 1200;
+
+export interface ToolResultView {
+  /** Full body, styled — shown when expanded. */
+  full: string;
+  /** Head-only body + "N more lines" notice — shown when collapsed. */
+  preview: string;
+  /** True when full !== preview, i.e. there is hidden content to expand. */
+  collapsible: boolean;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+/**
+ * MCP tools hand back a `content` array of typed blocks, which mcp.ts
+ * serializes as `JSON.stringify(content, null, 2)`. For the common
+ * all-text case (browser snapshots, page text, command output) that means
+ * the transcript shows a JSON envelope with the real text buried inside as
+ * an escaped `\n`-laden string. Pull the text back out so it renders as
+ * actual lines. Anything that isn't a clean array of `{type:'text', text}`
+ * blocks (images, mixed content, non-JSON) passes through untouched.
+ */
+export function extractTextContent(raw: string): string {
+  const head = raw.trimStart();
+  if (!head.startsWith('[') && !head.startsWith('{')) return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const blocks = Array.isArray(parsed) ? parsed : [parsed];
+    if (
+      blocks.length > 0 &&
+      blocks.every((b) => isRecord(b) && b.type === 'text' && typeof b.text === 'string')
+    ) {
+      return blocks.map((b) => (b as { text: string }).text).join('\n');
+    }
+  } catch {
+    // Not JSON — fall through to the raw string.
+  }
+  return raw;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Build the collapsed/expanded views for a raw tool-result string. Text is
+ * extracted from MCP envelopes first; shell-shaped output is colorized in
+ * both views. Short results return `collapsible: false` with preview === full.
+ */
+export function buildToolResultView(raw: string): ToolResultView {
+  const content = extractTextContent(raw);
+  const colorize = (s: string): string =>
+    looksLikeShellResult(content) ? colorizeShellResult(s) : s;
+
+  const full = colorize(content);
+  const lines = content.split('\n');
+  const collapsible =
+    lines.length > COLLAPSE_LINE_THRESHOLD || content.length > COLLAPSE_CHAR_THRESHOLD;
+  if (!collapsible) return { full, preview: full, collapsible: false };
+
+  let headStr = lines.slice(0, HEAD_LINES).join('\n');
+  if (headStr.length > PREVIEW_CHAR_CAP) headStr = headStr.slice(0, PREVIEW_CHAR_CAP);
+  const shownLines = headStr.split('\n').length;
+  const hiddenLines = Math.max(0, lines.length - shownLines);
+  const what =
+    hiddenLines > 0 ? `${hiddenLines} more line${hiddenLines === 1 ? '' : 's'}` : 'more output';
+  const notice = chalk.dim(`… ${what} · ${formatBytes(content.length)} — Ctrl-O to expand`);
+  return { full, preview: `${colorize(headStr)}\n${notice}`, collapsible: true };
+}
