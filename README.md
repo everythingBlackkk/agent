@@ -2,23 +2,20 @@
 
 <img src="assets/logo.png" alt="PentesterFlow" width="520" />
 
-### Agentic offensive-security in your terminal — powered by your own local LLMs.
+### Agentic offensive-security in your terminal, powered by models you control.
 
-Turn a one-line goal — *"find IDORs on this host"*, *"set up a recon pass on $TARGET"* —
-into a real tool-using agent loop: recon, vulnerability discovery, exploitation, and
-report-grade findings. Open source, free, and unrestricted for authorized work.
+PentesterFlow turns a scoped security objective into a tool-using workflow for
+recon, vulnerability testing, verification, and report-ready findings.
 
 <br/>
 
-[![build](https://img.shields.io/github/actions/workflow/status/pentesterflow/agent/ci.yml?branch=main&label=build&logo=github)](https://github.com/pentesterflow/agent/actions)
-[![release](https://img.shields.io/github/v/release/pentesterflow/agent?include_prereleases&logo=github)](https://github.com/pentesterflow/agent/releases)
-[![npm](https://img.shields.io/npm/v/@pentesterflow/agent?logo=npm&color=cb3837)](https://www.npmjs.com/package/@pentesterflow/agent)
+[![build](https://img.shields.io/github/actions/workflow/status/PentesterFlow/agent/ci.yml?branch=main&label=build&logo=github)](https://github.com/PentesterFlow/agent/actions)
+[![release](https://img.shields.io/github/v/release/PentesterFlow/agent?include_prereleases&logo=github)](https://github.com/PentesterFlow/agent/releases)
 [![node](https://img.shields.io/badge/node-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#contributing)
-[![stars](https://img.shields.io/github/stars/pentesterflow/agent?style=social)](https://github.com/pentesterflow/agent/stargazers)
+[![stars](https://img.shields.io/github/stars/PentesterFlow/agent?style=social)](https://github.com/PentesterFlow/agent/stargazers)
 
-**[Install](#install) · [Quickstart](#quickstart) · [Usage](#usage) · [Skills](#skills) · [Security](#security-model) · [Contributing](#contributing)**
+**[Install](#install) · [Quickstart](#quickstart) · [Core](#core) · [Usage](#usage) · [Skills](#skills) · [Security](#security-model)**
 
 </div>
 
@@ -26,110 +23,107 @@ report-grade findings. Open source, free, and unrestricted for authorized work.
 
 ```console
 $ pentesterflow
-╭───────────────────────────────────────────────╮
-│  ❯❯  pentesterflow      ollama (local)          │
-│      qwen2.5-coder:32b  tools ✓  ·  ready       │
-╰───────────────────────────────────────────────╯
+╭────────────────────────────────────────────────╮
+│  PentesterFlow                                 │
+│  local agent · tools ready · human approved     │
+╰────────────────────────────────────────────────╯
 
-❯ /target https://app.example.com
+› /target https://app.example.com
   target set to https://app.example.com
 
-❯ find IDORs on the orders API
-◆ skill:webvuln loaded · planning access-control sweep
-⚙ http  GET /api/v1/orders/1043        (as user A)      → 200 OK
-⚙ http  GET /api/v1/orders/1043        (Bearer user B)  → 200 OK   cross-tenant read
-✔ P2 · IDOR on /orders/{id}  →  written to ./findings/idor-orders.md
-  (copy-paste curl PoC + impact + remediation included)
+› test the orders API for broken access control
+⏺ Skill webvuln
+  ⎿ loaded skill: webvuln
+⏺ http GET https://app.example.com/api/v1/orders/1043
+  ⎿ 200 OK
+⏺ Shell(curl -s -H "Authorization: Bearer $USER_B" https://app.example.com/api/v1/orders/1043)
+  ⎿ cross-account response confirmed
+⏺ Confirmed Finding (high) IDOR on /api/v1/orders/{id}
+  ⎿ written to ./findings/idor-orders.md
 ```
-
-<!-- Tip: drop a recorded demo at docs/demo.gif and embed it here for the hero. -->
-
-## Table of contents
-
-- [Overview](#overview)
-- [Highlights](#highlights)
-- [Install](#install)
-- [Quickstart](#quickstart)
-- [Usage](#usage)
-  - [Command-line flags](#command-line-flags)
-  - [Slash commands](#slash-commands)
-- [How it works](#how-it-works)
-- [Skills](#skills)
-- [Browser capture](#browser-capture)
-- [Security model](#security-model)
-- [Configuration & data](#configuration--data)
-- [Develop](#develop)
-- [Contributing](#contributing)
-- [License](#license)
 
 ## Overview
 
-Pentesterflow is a terminal agent for penetration testers, security engineers, and bug
-hunters. It runs entirely against models **you** control — Ollama, LM Studio, or any
-OpenAI-compatible endpoint — so nothing leaves your machine unless you point it at a
-remote provider yourself.
+PentesterFlow is an open-source terminal agent for professional penetration
+testing, bug bounty work, and security engineering. It connects to local or
+OpenAI-compatible LLM backends, plans against a scoped target, asks for approval
+before sensitive actions, runs tools, verifies behavior, and writes findings you
+can use in a report.
 
-It is **curl-first** by design: the agent reaches for `curl` and a built-in HTTP tool
-before it ever pulls in a heavy scanner, and it writes every confirmed bug to disk as a
-reproducible, report-grade finding. The system prompt is hard-locked to offensive-security
-work and calibrated against OWASP Top 10, the Bugcrowd VRT (P1–P5), and PortSwigger research.
+The project is intentionally **local-first** and **curl-first**. It works well
+with Ollama, LM Studio, vLLM, llama.cpp servers, and compatible hosted APIs. It
+prefers transparent HTTP and shell commands before heavier scanners, so every
+step is visible, reproducible, and easy to audit.
 
 > [!WARNING]
-> **Authorized engagements only.** Pentesterflow runs arbitrary shell, edits files, makes
-> arbitrary HTTP requests, and — with `--browser` — drives a real browser. The model
-> proposes; **you** approve. Read the [Security model](#security-model) before pointing it at
-> anything you do not own.
+> Use PentesterFlow only on systems where you have explicit authorization. The
+> agent can run shell commands, make HTTP requests, edit files, and drive browser
+> capture tools after approval.
+
+## Core
+
+| Area | What PentesterFlow provides |
+|---|---|
+| Agent loop | Plan, act, observe, verify, and report across one scoped task. |
+| Model backends | Ollama, LM Studio, and OpenAI-compatible APIs. |
+| Tooling | Shell/Bash, HTTP, file tools, search, browser capture, MCP, and finding confirmation. |
+| Skills | Markdown playbooks for recon, web vulnerabilities, SSRF, SSTI, JWT, GraphQL, race testing, takeover checks, Supabase, and deserialization. |
+| Human control | Permission prompts with allow once, allow session, deny, and explicit YOLO mode for labs. |
+| Reporting | Confirmed findings saved as Markdown with evidence, impact, PoC, and remediation. |
+| Releases | Standalone binaries for macOS, Linux, and Windows published through GitHub Actions. |
 
 ## Highlights
 
-- **Local by default** — Ollama, LM Studio, vLLM, llama.cpp, or any OpenAI-compatible API. No telemetry, no accounts, no usage caps.
-- **A real agent loop** — plan → act → observe → verify → report, not a chatbot. You stay in the loop via a per-call permission prompt.
-- **Curl-first** — the agent prefers `curl` + the built-in `http` tool; scanners like `ffuf`, `nuclei`, and `sqlmap` run only when you ask.
-- **Ten offensive skills** — versioned markdown playbooks for `recon`, `webvuln`, `ssrf`, `ssti`, `jwt`, `graphql`, `race`, `takeover`, `supabase`, and `deserialize`. Write your own with `/skills new`.
-- **Report-grade findings** — verified bugs are persisted to `./findings/<slug>.md` with a copy-pasteable PoC, concrete impact, and remediation. No theoretical findings.
-- **Built-in safety rails** — shell denylist, sensitive-path gating (`~/.ssh`, `~/.aws`, `/etc/shadow`, shell histories), and credential redaction on `/compact` and `/export`.
-- **MCP, including Browser MCP** — register any MCP server; one flag wires up live browser capture so the agent can query real traffic, cookies, and session snapshots.
+- **Local by default**: run against your own model backend with no required cloud account.
+- **Modern terminal UI**: compact tool calls, readable shell transcripts, skill summaries, and finding-focused output.
+- **Permission-aware execution**: approve each risky action once or for the session.
+- **Verified findings only**: the agent should reproduce a bug before using `confirm_finding`.
+- **Portable shell guidance**: tool prompts and preflight checks steer commands away from GNU-only flags when they can break on macOS or Linux.
+- **Extensible workflows**: add custom skills, MCP servers, and browser-capture producers.
 
 ## Install
 
-The online installer downloads the standalone binary for your OS/arch and verifies its
-SHA-256. No Node required:
+The installers download the latest standalone binary for your OS and verify the
+published SHA-256 checksum when available.
 
 ```sh
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/pentesterflow/agent/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/PentesterFlow/agent/main/install.sh | sh
 ```
 
 ```powershell
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/pentesterflow/agent/main/install.ps1 | iex
+# Windows PowerShell
+irm https://raw.githubusercontent.com/PentesterFlow/agent/main/install.ps1 | iex
 ```
 
-Pin a version or change the install directory with environment variables —
-`PENTESTERFLOW_VERSION=v0.1.0`, `PENTESTERFLOW_INSTALL_DIR=/usr/local/bin`
-(`$env:...` on Windows).
-
-Via npm (requires Node 20+):
+Pin a release or choose an install directory:
 
 ```sh
-npm install -g @pentesterflow/agent
-pentesterflow --version
+PENTESTERFLOW_VERSION=v0.1.0 PENTESTERFLOW_INSTALL_DIR="$HOME/.local/bin" \
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/PentesterFlow/agent/main/install.sh)"
 ```
 
-Or grab a single-file binary directly from the [releases page](https://github.com/pentesterflow/agent/releases).
+You can also download binaries directly from
+[GitHub Releases](https://github.com/PentesterFlow/agent/releases):
+
+| OS | Assets |
+|---|---|
+| macOS | `pentesterflow-darwin-arm64`, `pentesterflow-darwin-x64` |
+| Linux | `pentesterflow-linux-arm64`, `pentesterflow-linux-x64` |
+| Windows | `pentesterflow-windows-x64.exe` |
 
 ## Quickstart
 
 ```sh
-# 1. Pull a capable tool-calling model
+# 1. Pull a capable local model
 ollama pull qwen2.5-coder:32b
 
-# 2. Launch (defaults to a local Ollama backend)
+# 2. Launch PentesterFlow
 pentesterflow
 
-# 3. Pin the engagement scope, then describe the goal in plain English
+# 3. Set scope, then describe the task
 #    /target https://app.example.com
-#    find IDORs and broken access control on the orders API
+#    test the orders API for IDOR and broken access control
 ```
 
 ## Usage
@@ -141,114 +135,107 @@ pentesterflow
 # LM Studio
 pentesterflow --backend lmstudio --model qwen2.5-coder-32b-instruct
 
-# Any OpenAI-compatible endpoint (vLLM, llama.cpp server, remote provider)
-pentesterflow --backend openai-compat --base-url https://api.example.com/v1 --api-key sk-...
+# OpenAI-compatible endpoint
+pentesterflow --backend openai-compat \
+  --base-url https://api.example.com/v1 \
+  --api-key sk-...
 
-# Enable Browser MCP for this session
+# Enable browser-capture tools for this session
 pentesterflow --browser
 
-# Start the local browser-capture ingest server (127.0.0.1:9999)
+# Start the local browser-capture ingest server
 pentesterflow --browser-ingest
 
-# YOLO — auto-approve every tool call (throwaway VMs / lab targets only)
+# Auto-approve tool calls for disposable lab environments only
 pentesterflow --dangerously-skip-permissions
 ```
 
-### Command-line flags
+### Command-Line Flags
 
 | Flag | Description |
 |---|---|
-| `--backend ollama\|lmstudio\|openai-compat` | Select the LLM backend (default: `ollama`). |
-| `--model <id>` | Model id (e.g. `qwen2.5-coder:32b`). |
-| `--base-url <url>` / `--api-key <key>` | Endpoint + key for `openai-compat`. |
-| `--skills <dirs>` | Comma-separated extra skill directories. |
+| `--backend ollama\|lmstudio\|openai-compat` | Select the LLM backend. |
+| `--model <id>` | Set the model id. |
+| `--base-url <url>` / `--api-key <key>` | Configure an OpenAI-compatible backend. |
+| `--skills <dirs>` | Load extra skill directories. |
 | `--resume <session-id>` | Resume a saved session. |
-| `--browser` | Enable Browser MCP for this session (not persisted). |
-| `--browser-ingest [port]` | Start the local capture ingest server (default `:9999`). |
-| `--no-stream` | Disable streaming chat (fallback for backends that drop `tool_calls` over SSE). |
-| `--dangerously-skip-permissions` | YOLO mode — auto-approve every tool call. |
-| `--list-tools` / `--list-skills` | Print the registered tools / discovered skills and exit. |
-| `--log <path>` | Override the log file path. |
-| `--version` / `--help` | Print version / usage and exit. |
+| `--browser` | Enable Browser MCP tools for the current session. |
+| `--browser-ingest [port]` | Start the local capture ingest server. |
+| `--no-stream` | Disable streaming chat for providers with SSE/tool-call issues. |
+| `--dangerously-skip-permissions` | Auto-approve non-sensitive tool calls. |
+| `--list-tools` / `--list-skills` | Print registered tools or discovered skills. |
+| `--log <path>` | Override the JSON-lines log path. |
+| `--version` / `--help` | Print version or help. |
 
-### Slash commands
+### Slash Commands
 
 | Command | Description |
 |---|---|
-| `/help` | Keybindings and the full slash-command reference. |
-| `/provider` | Interactive picker: choose a backend, then a model from its catalog. |
-| `/model <id>` | Switch model directly; validated against the live backend catalog. |
-| `/target <url>` | Pin an engagement base URL (the `http` tool resolves paths against it). No argument clears it. |
-| `/skills [enable\|disable\|new <name>]` | List and toggle skills, or scaffold a new one. |
-| `/maxsteps <n>` | Per-turn tool-call cap (default 20). |
-| `/thinking on\|off` | Toggle the show-thinking directive. |
-| `/yolo [on\|off]` | Toggle auto-approval for tool calls. |
-| `/reset` | Clear the conversation and the saved session. |
-| `/clear` | Clear the on-screen transcript only. |
-| `/<skill-name>` | Load a skill into context for your next turn. |
+| `/help` | Show keybindings and command reference. |
+| `/provider` | Pick a backend and model interactively. |
+| `/model <id>` | Switch model. |
+| `/target <url>` | Set or clear the engagement base URL. |
+| `/skills [enable\|disable\|new <name>]` | Manage skills or scaffold a new skill. |
+| `/maxsteps <n>` | Set the per-turn tool-call cap. |
+| `/thinking on\|off` | Toggle visible reasoning guidance. |
+| `/yolo [on\|off]` | Toggle auto-approval mode. |
+| `/reset` | Clear conversation and saved session state. |
+| `/clear` | Clear only the on-screen transcript. |
+| `/<skill-name>` | Load a skill into the next turn. |
 | `/exit` | Quit. |
 
-## How it works
+## How It Works
 
-Each turn runs an autonomous reason-and-act loop against your target:
+1. **Scope**: set a target and constraints before testing.
+2. **Plan**: select the relevant methodology or load a skill playbook.
+3. **Act**: call approved tools such as `http`, `shell`, file tools, browser capture, or MCP servers.
+4. **Observe**: compare responses, status codes, headers, timing, and account boundaries.
+5. **Verify**: reproduce the issue with a clean command or request.
+6. **Report**: persist confirmed issues through `confirm_finding`.
 
-1. **Plan** — decompose the goal into a recon → discovery → exploit → report chain.
-2. **Act** — call tools (`http`, `shell`, the browser, MCP servers) to probe the target.
-3. **Observe** — read responses, diff behavior across accounts, reason about anomalies.
-4. **Verify** — reproduce the bug with a clean PoC before it is ever called a finding.
-5. **Report** — write `./findings/<slug>.md` with a curl PoC, impact, and remediation.
-
-A live health probe (15s interval, 5s timeout) keeps the status bar honest about whether
-the backend is `ready` or `disconnected`, and `Esc` cancels an in-flight turn at any point.
-
-### Built-in tools
+## Tools
 
 | Tool | Purpose |
 |---|---|
-| `shell` / `BashTool` | Run a command via `/bin/sh` or `/bin/bash` (per-call permission + denylist). |
-| `file_read` / `file_write` / `file_edit` | Read, write, and patch files (PascalCase aliases also registered). |
-| `GlobTool` / `GrepTool` | Find files by glob; search file contents by regex. |
-| `http` | Send a single HTTP/HTTPS request; resolves paths against the active `/target`. |
-| `web_fetch` / `web_search` | Fetch a URL or run a web search. |
-| `ask_user` | Ask a multiple-choice question to disambiguate a branch. |
-| `confirm_finding` | Persist a verified finding to `./findings/<slug>.md`. |
-| `coverage` | Track tested `(endpoint, parameter, vuln-class)` tuples across the session. |
-| `load_skill` | Load a skill playbook into context on demand. |
-| `browser_capture_*` | Query traffic, endpoints, requests, and session snapshots from the browser extension. |
+| `shell` / `BashTool` | Run shell commands with approval and safety checks. |
+| `http` | Send HTTP/HTTPS requests against full URLs or the active `/target`. |
+| `file_read` / `file_write` / `file_edit` | Read, create, and patch files. |
+| `GlobTool` / `GrepTool` | Discover files and search content. |
+| `web_fetch` / `web_search` | Fetch pages or run web searches. |
+| `ask_user` | Ask for a decision when scope or testing direction is ambiguous. |
+| `confirm_finding` | Save a verified finding to `./findings/<slug>.md`. |
+| `coverage` | Track tested endpoints, parameters, and vulnerability classes. |
+| `load_skill` | Load a methodology playbook into context. |
+| `browser_capture_*` | Query captured browser traffic, requests, endpoints, and snapshots. |
 
 ## Skills
 
-Skills are versioned markdown playbooks — methodology, payloads, and decision logic for one
-vulnerability class. The agent sees each skill's name and description, and loads the full
-body on demand with `load_skill`.
+Skills are versioned Markdown playbooks that package methodology, payloads, and
+decision logic. Built-in skills include:
 
 | Skill | Focus |
 |---|---|
-| `recon` | Attack-surface mapping: subdomains, fingerprinting, content discovery. |
-| `webvuln` | Core web sweep: IDOR / BAC, injection, auth and session logic. |
-| `ssrf` | Filter bypass, cloud metadata, internal reach, blind SSRF. |
-| `ssti` | Template-engine fingerprinting and escalation to RCE. |
-| `jwt` | `alg` confusion, `kid` abuse, weak-secret cracking. |
-| `graphql` | Introspection, authorization gaps, batching and depth abuse. |
-| `race` | TOCTOU windows, limit-overrun, single-packet attacks. |
-| `takeover` | Dangling DNS / unclaimed cloud resource takeover. |
-| `supabase` | Row-Level-Security and anonymous read/write abuse. |
-| `deserialize` | Untrusted-deserialization sinks and gadget chains. |
+| `recon` | Subdomains, fingerprinting, content discovery, and attack-surface mapping. |
+| `webvuln` | IDOR, broken access control, injection, auth, and session logic. |
+| `ssrf` | Filter bypasses, metadata access, internal reachability, and blind SSRF. |
+| `ssti` | Template-engine fingerprinting and escalation paths. |
+| `jwt` | Algorithm confusion, `kid` abuse, weak secrets, and token validation flaws. |
+| `graphql` | Introspection, authorization gaps, batching, and depth abuse. |
+| `race` | TOCTOU issues, limit bypasses, and race-condition verification. |
+| `takeover` | Dangling DNS and unclaimed cloud resources. |
+| `supabase` | Row-Level Security and anonymous access mistakes. |
+| `deserialize` | Unsafe deserialization sinks and gadget-chain testing. |
 
-Discovery order (later wins on a name collision): the built-in `skills/` directory →
-project-local `./.pentesterflow/skills/` → personal `~/.pentesterflow/skills/` → any
-directory passed via `--skills`. Scaffold a new one with `/skills new <name>`.
+Discovery order is built-in `skills/`, project-local
+`./.pentesterflow/skills/`, personal `~/.pentesterflow/skills/`, then any
+directory passed with `--skills`. Later entries win on name collisions.
 
-## Browser capture
+## Browser Capture
 
-`pentesterflow --browser-ingest` starts a local HTTP ingest server on `127.0.0.1:9999`
-(`POST /ingest`, `POST /snapshot`) and registers the `browser_capture_*` tools, so the agent
-can query whatever a producer (the Chrome extension, a `curl` script, a mitmproxy plugin)
-feeds it.
-
-The package also ships a second binary, `pentesterflow-browser-mcp`, that runs as a
-**stdio MCP server** hosting the same ingest endpoint and re-exposing captures as MCP tools —
-register it in any MCP-aware client:
+`pentesterflow --browser-ingest` starts a local ingest server on
+`127.0.0.1:9999` for captured requests and snapshots. The companion
+`pentesterflow-browser-mcp` binary exposes the same capture data as an MCP
+server for compatible clients.
 
 ```json
 {
@@ -261,23 +248,21 @@ register it in any MCP-aware client:
 }
 ```
 
-Exposed tools: `browser_capture_status`, `_endpoints`, `_requests`, `_get`, `_snapshot`,
-`_clear`. Flags: `--port <n>`, `--max-entries <n>`, `--log <path>`.
+## Security Model
 
-## Security model
+- **Authorized use only**: PentesterFlow is built for permitted security work.
+- **Human approval**: permission-gated tools require allow once, allow session, or deny.
+- **Sensitive path protection**: secrets and high-risk local paths stay gated even in YOLO mode.
+- **Shell safeguards**: catastrophic commands are blocked before execution.
+- **Transcript control**: compacting and export paths redact common credential formats.
+- **Transparent evidence**: findings should include the request, response signal, impact, and remediation.
 
-- **Scope lock** — the system prompt only assists with penetration testing, bug bounty, code review, and coding. Out-of-scope chatter is refused.
-- **Human-in-the-loop** — every permission-gated tool call prompts `allow once` / `allow session` / `deny`. YOLO can skip prompts, but **never** for sensitive-path operations.
-- **Shell denylist** — catastrophic commands (`rm -rf /`, fork bombs, `mkfs`, disk overwrites, `find -delete`) are blocked before they reach an approval prompt.
-- **Sensitive-path gating** — reads and writes under `~/.ssh`, `~/.aws`, `/etc/shadow`, shell histories, and similar always require an explicit prompt, even in YOLO.
-- **Credential redaction** — bearer tokens, AWS keys, GitHub PATs, Slack tokens, JWTs, and PEM blocks are scrubbed on `/compact` and `/export` before the conversation crosses a trust boundary.
-
-## Configuration & data
+## Configuration And Data
 
 | Path | Contents |
 |---|---|
-| `~/.pentesterflow/config.json` | Backend, model, endpoint, disabled skills. |
-| `~/.pentesterflow/sessions/*.json` | Saved sessions (resume with `--resume`). |
+| `~/.pentesterflow/config.json` | Backend, model, endpoint, and disabled-skill settings. |
+| `~/.pentesterflow/sessions/*.json` | Saved sessions for `--resume`. |
 | `~/.pentesterflow/skills/<name>/SKILL.md` | Personal skills. |
 | `./.pentesterflow/skills/<name>/SKILL.md` | Project-local skills. |
 | `./findings/<slug>.md` | Confirmed findings for the current engagement. |
@@ -287,29 +272,31 @@ Exposed tools: `browser_capture_status`, `_endpoints`, `_requests`, `_get`, `_sn
 
 ```sh
 npm install
-npm run dev -- --version     # run from source via tsx
-npm run test                 # vitest — 300+ unit & integration tests
+npm run dev -- --version
 npm run typecheck
 npm run lint
-npm run build                # produces dist/cli.js + dist/browser-mcp.js
-node dist/cli.js             # launch the TUI
+npm run test
+npm run build
+node dist/cli.js
 ```
+
+`npm run ci` runs typecheck, lint, tests, and build.
 
 ## Contributing
 
-Issues and pull requests are welcome. A change is ready when `npm run ci`
-(typecheck → lint → test → build) passes. New skills should ship with their
-`SKILL.md` and pass the conformance test in `src/skills/conformance.test.ts`.
+Issues and pull requests are welcome. Keep changes focused, include tests for
+behavioral updates, and run `npm run ci` before opening a pull request. New
+skills should include a `SKILL.md` and pass the skill conformance tests.
 
 ## License
 
-[MIT](LICENSE). Use responsibly, and only with authorization.
+[MIT](LICENSE). Use responsibly and only with authorization.
 
 <div align="center">
 <br/>
 
-If Pentesterflow saves you time on an engagement, consider leaving a star.
-
-**[Report an issue](https://github.com/pentesterflow/agent/issues)** · **[Request a feature](https://github.com/pentesterflow/agent/issues/new)** · **[Releases](https://github.com/pentesterflow/agent/releases)**
+**[Report an issue](https://github.com/PentesterFlow/agent/issues)** ·
+**[Request a feature](https://github.com/PentesterFlow/agent/issues/new)** ·
+**[Releases](https://github.com/PentesterFlow/agent/releases)**
 
 </div>
