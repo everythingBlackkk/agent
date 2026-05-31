@@ -155,6 +155,8 @@ export function reducer(state: AppState, action: Action): AppState {
 }
 
 const TOOL_CALL_PREVIEW_CAP = 120;
+const SHELL_TITLE_CAP = 72;
+const SHELL_BLOCK_COMMAND_THRESHOLD = 88;
 
 /**
  * Collapse a tool-call's raw JSON args into a single-line preview for
@@ -196,9 +198,78 @@ function shellDisplayName(name: string): string {
   return name === 'shell' ? 'Shell' : 'Bash';
 }
 
+function capText(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}…`;
+}
+
+function shellCommandFromArgs(argsJSON: string): string | null {
+  try {
+    const parsed = JSON.parse(argsJSON) as Record<string, unknown>;
+    return typeof parsed.command === 'string' && parsed.command ? parsed.command : null;
+  } catch {
+    return null;
+  }
+}
+
+function cleanShellComment(line: string): string {
+  return line
+    .replace(/^#\s*/, '')
+    .replace(/\s+-\s+.+$/, '')
+    .trim();
+}
+
+function shellActionFromCommand(command: string): { title: string; command: string } | null {
+  const lines = command
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const first = lines[0] ?? '';
+  if (!first.startsWith('#')) return null;
+
+  if (lines.length > 1) {
+    return {
+      title: capText(cleanShellComment(first), SHELL_TITLE_CAP),
+      command: previewArgs(lines.slice(1).join(' && ')),
+    };
+  }
+
+  const curlIdx = first.indexOf(' curl ');
+  if (curlIdx !== -1) {
+    return {
+      title: capText(cleanShellComment(first.slice(0, curlIdx)), SHELL_TITLE_CAP),
+      command: previewArgs(first.slice(curlIdx + 1)),
+    };
+  }
+
+  return {
+    title: capText(cleanShellComment(first), SHELL_TITLE_CAP),
+    command: previewArgs(command),
+  };
+}
+
+function shellLongCommandBlock(command: string): { title: string; command: string } | null {
+  const preview = previewArgs(command);
+  if (preview.length < SHELL_BLOCK_COMMAND_THRESHOLD && !preview.endsWith('…')) return null;
+
+  const firstWord = preview.match(/^[A-Za-z0-9_.:/-]+/)?.[0] ?? 'command';
+  const title =
+    firstWord === 'curl' ? 'HTTP request' : firstWord === 'for' ? 'Run loop' : `Run ${firstWord}`;
+  return { title, command: preview };
+}
+
 function formatToolCallText(name: string, argsJSON: string): string {
   const argsPreview = previewToolArgs(name, argsJSON);
-  if (isShellTool(name)) return `${shellDisplayName(name)}(${argsPreview})`;
+  if (isShellTool(name)) {
+    const shellName = shellDisplayName(name);
+    const command = shellCommandFromArgs(argsJSON);
+    const action = command
+      ? (shellActionFromCommand(command) ?? shellLongCommandBlock(command))
+      : null;
+    if (action) return `${shellName} · ${action.title}\n$ ${action.command}`;
+    return `${shellName}(${argsPreview})`;
+  }
   return `${displayToolName(name)} ${argsPreview}`;
 }
 

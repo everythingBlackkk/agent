@@ -43,7 +43,7 @@ describe('state.reducer tool-call preview', () => {
     const last = out.transcript[out.transcript.length - 1];
     // "shell " (6) + 120 + "…" (1) = 127 total. Loose check on the cap.
     expect(last?.text.length).toBeLessThanOrEqual(140);
-    expect(last?.text).toMatch(/…\)$/);
+    expect(last?.text).toMatch(/…$/);
   });
 
   it('shows the bare command, not the JSON envelope', () => {
@@ -76,6 +76,55 @@ describe('state.reducer tool-call preview', () => {
     });
     const last = out.transcript.at(-1);
     expect(last?.text).toBe('Bash(mkdir -p recon/gobus.net)');
+    expect(last?.prefix).toBe('⏺ ');
+  });
+
+  it('renders commented shell commands as action title plus command', () => {
+    const out = reducer(seed(), {
+      type: 'agent-event',
+      event: {
+        type: 'tool-call',
+        id: 'c1',
+        name: 'shell',
+        args: {},
+        argsJSON: JSON.stringify({
+          command: [
+            '# Check for Laravel debug mode - try to trigger an error',
+            'curl -s "https://egyptianclothingbank.org/donor/login" -X POST',
+          ].join('\n'),
+        }),
+      },
+    });
+    const last = out.transcript.at(-1);
+    expect(last?.text).toBe(
+      [
+        'Shell · Check for Laravel debug mode',
+        '$ curl -s "https://egyptianclothingbank.org/donor/login" -X POST',
+      ].join('\n'),
+    );
+    expect(last?.prefix).toBe('⏺ ');
+  });
+
+  it('renders long uncommented Bash commands as a titled command block', () => {
+    const command =
+      'curl -fsS --max-time 30 -H \'Accept: application/json\' "https://crt.sh/?q=%25.egyptianclothingbank.org&output=json" 2>/dev/null';
+    const out = reducer(seed(), {
+      type: 'agent-event',
+      event: {
+        type: 'tool-call',
+        id: 'c1',
+        name: 'BashTool',
+        args: {},
+        argsJSON: JSON.stringify({ command }),
+      },
+    });
+    const last = out.transcript.at(-1);
+    expect(last?.text).toBe(
+      [
+        'Bash · HTTP request',
+        '$ curl -fsS --max-time 30 -H \'Accept: application/json\' "https://crt.sh/?q=%25.egyptianclothingbank.org&output=json" 2>/de…',
+      ].join('\n'),
+    );
     expect(last?.prefix).toBe('⏺ ');
   });
 
