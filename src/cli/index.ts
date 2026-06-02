@@ -681,8 +681,6 @@ function providerLabel(b: string): string {
       return 'Codex CLI';
     case 'gemini-cli':
       return 'Gemini CLI';
-    case 'copilot-cli':
-      return 'Copilot CLI';
     default:
       return b;
   }
@@ -703,8 +701,6 @@ function defaultEndpoint(b: string): string {
       return 'codex exec';
     case 'gemini-cli':
       return 'gemini --prompt';
-    case 'copilot-cli':
-      return 'copilot --prompt';
     default:
       return '';
   }
@@ -752,8 +748,8 @@ Usage:
   pentesterflow [flags]
 
 Flags:
-  --backend ollama|lmstudio|openai-compat|codex-cli|gemini-cli|copilot-cli
-  --cli codex|gemini|copilot
+  --backend ollama|lmstudio|openai-compat|codex-cli|gemini-cli
+  --cli codex|gemini
   --cli-mod <id>             alias for the model used with --cli
   --model <id>
   --base-url <url>
@@ -777,11 +773,6 @@ Cli Support now:
   pentesterflow --cli codex --cli-mod gpt-5.4-mini
   pentesterflow --cli gemini --cli-mod gemini-3-flash-preview
   pentesterflow --cli gemini --cli-mod gemini-3.1-pro-preview
-  pentesterflow --cli copilot --cli-mod gpt-5.2-codex
-  pentesterflow --cli copilot --cli-mod gpt-5.2
-  pentesterflow --cli copilot --cli-mod gpt-5.4-mini
-  pentesterflow --cli copilot --cli-mod gpt-5-mini
-  pentesterflow --cli copilot --cli-mod claude-haiku-4.5
 
 In the TUI: Enter send · Esc cancel turn · Ctrl-C quit · mouse-wheel scroll
 Slash: /help /plan /clear /reset /exit /target /maxsteps /thinking /update

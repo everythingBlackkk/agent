@@ -823,11 +823,7 @@ function handleSlash(
         return true;
       }
       let requestedModel = m;
-      if (
-        cur.backend === 'codex-cli' ||
-        cur.backend === 'gemini-cli' ||
-        cur.backend === 'copilot-cli'
-      ) {
+      if (cur.backend === 'codex-cli' || cur.backend === 'gemini-cli') {
         try {
           requestedModel = normalizeCliModel(cur.backend, m);
         } catch (err) {
@@ -989,8 +985,6 @@ function backendLabel(backend: Backend): string {
       return 'Codex CLI';
     case 'gemini-cli':
       return 'Gemini CLI';
-    case 'copilot-cli':
-      return 'Copilot CLI';
     default:
       return backend;
   }
@@ -1293,7 +1287,6 @@ function openProviderPicker(
   const labelOAI = `OpenAI-compatible${cur.backend === 'openai-compat' ? ' (current)' : ''}`;
   const labelCodex = `Codex CLI${cur.backend === 'codex-cli' ? ' (current)' : ''}`;
   const labelGemini = `Gemini CLI${cur.backend === 'gemini-cli' ? ' (current)' : ''}`;
-  const labelCopilot = `Copilot CLI${cur.backend === 'copilot-cli' ? ' (current)' : ''}`;
 
   const req: AskRequest = {
     question: {
@@ -1314,10 +1307,6 @@ function openProviderPicker(
           label: labelGemini,
           description: 'local experimental backend — uses `gemini --prompt` in read-only mode',
         },
-        {
-          label: labelCopilot,
-          description: 'local experimental backend — uses `copilot --prompt` with tools disabled',
-        },
       ],
     },
     resolve: (picked) => {
@@ -1330,9 +1319,7 @@ function openProviderPicker(
             ? 'openai-compat'
             : picked.startsWith('Codex CLI')
               ? 'codex-cli'
-              : picked.startsWith('Gemini CLI')
-                ? 'gemini-cli'
-                : 'copilot-cli';
+              : 'gemini-cli';
       const config = readConfig();
       // For openai-compat we need URL + key already in config.
       if (backend === 'openai-compat' && (!config.baseURL || !config.apiKey)) {
@@ -1349,7 +1336,7 @@ function openProviderPicker(
       }
       const baseURL = backend === 'openai-compat' ? config.baseURL : '';
       const apiKey = backend === 'openai-compat' ? config.apiKey : '';
-      if (backend === 'codex-cli' || backend === 'gemini-cli' || backend === 'copilot-cli') {
+      if (backend === 'codex-cli' || backend === 'gemini-cli') {
         const model = modelsForCliBackend(backend)[0] ?? '';
         void fetchAndPickModel(backend, baseURL, apiKey, dispatch, applyProvider, {
           currentModel: config.backend === backend ? config.model || model : model,

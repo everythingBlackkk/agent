@@ -174,7 +174,6 @@ describe('UI slash commands (terminal integration)', () => {
     expect(frame).toMatch(/backend|Ollama/i);
     expect(frame).toContain('Codex CLI');
     expect(frame).toContain('Gemini CLI');
-    expect(frame).toContain('Copilot CLI');
     expect(runSpy).not.toHaveBeenCalled();
   });
 
@@ -247,25 +246,6 @@ describe('UI slash commands (terminal integration)', () => {
 
     expect(mounted.lastFrame()).toContain('codex-cli currently supports: gpt-5.4-mini.');
     expect(applyProvider).not.toHaveBeenCalled();
-  });
-
-  it('/model normalizes friendly copilot model names', async () => {
-    readConfig = () => ({ backend: 'copilot-cli', baseURL: '', apiKey: '', model: 'gpt-5.2' });
-    vi.mocked(listModels).mockResolvedValueOnce([
-      'gpt-5.2-codex',
-      'gpt-5.2',
-      'gpt-5.4-mini',
-      'gpt-5-mini',
-      'claude-haiku-4.5',
-    ]);
-    mounted = renderApp();
-    await tick();
-
-    await submit(mounted.stdin, '/model GPT-5 mini');
-    await tick();
-
-    expect(applyProvider).toHaveBeenCalledWith({ backend: 'copilot-cli', model: 'gpt-5-mini' });
-    expect(mounted.lastFrame()).toContain('model set to gpt-5-mini');
   });
 
   it('/plan without args plans from current context', async () => {

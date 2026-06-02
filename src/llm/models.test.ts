@@ -90,16 +90,6 @@ describe('listModels', () => {
     ]);
   });
 
-  it('returns fixed copilot-cli models', async () => {
-    await expect(listModels('copilot-cli')).resolves.toEqual([
-      'gpt-5.2-codex',
-      'gpt-5.2',
-      'gpt-5.4-mini',
-      'gpt-5-mini',
-      'claude-haiku-4.5',
-    ]);
-  });
-
   it('throws on connection failure', async () => {
     await expect(listModels('ollama', 'http://127.0.0.1:1')).rejects.toBeInstanceOf(Error);
   });

@@ -3,7 +3,6 @@
 import type { Config } from '../config/config.js';
 import type { Client } from './client.js';
 import { CodexCliClient, assertCodexCliAvailable } from './codexCli.js';
-import { CopilotCliClient, assertCopilotCliAvailable } from './copilotCli.js';
 import { GeminiCliClient, assertGeminiCliAvailable } from './geminiCli.js';
 import { OllamaClient } from './ollama.js';
 import { OpenAIClient } from './openai.js';
@@ -26,9 +25,6 @@ export function newFromConfig(cfg: Config): Client {
     case 'gemini-cli':
       assertGeminiCliAvailable(cfg.geminiCli.command);
       return new GeminiCliClient(cfg);
-    case 'copilot-cli':
-      assertCopilotCliAvailable(cfg.copilotCli.command);
-      return new CopilotCliClient(cfg);
     default: {
       const _exhaustive: never = cfg.backend;
       throw new Error(`unknown backend: ${String(_exhaustive)}`);

@@ -13,7 +13,6 @@ const DEFAULT_BASE_URL: Record<Exclude<Backend, ''>, string> = {
   'openai-compat': '',
   'codex-cli': '',
   'gemini-cli': '',
-  'copilot-cli': '',
 };
 
 /**

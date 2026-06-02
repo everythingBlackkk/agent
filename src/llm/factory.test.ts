@@ -2,14 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { defaultConfig } from '../config/config.js';
 import { newFromConfig } from './factory.js';
 
-vi.mock('./copilotCli.js', async () => {
-  const actual = await vi.importActual<typeof import('./copilotCli.js')>('./copilotCli.js');
-  return {
-    ...actual,
-    assertCopilotCliAvailable: vi.fn(),
-  };
-});
-
 vi.mock('./codexCli.js', async () => {
   const actual = await vi.importActual<typeof import('./codexCli.js')>('./codexCli.js');
   return {
@@ -61,19 +53,5 @@ describe('newFromConfig', () => {
 
     const mod = await import('./geminiCli.js');
     expect(vi.mocked(mod.assertGeminiCliAvailable)).toHaveBeenCalledWith('gemini');
-  });
-
-  it('accepts copilot-cli as a backend', async () => {
-    const cfg = defaultConfig();
-    cfg.backend = 'copilot-cli';
-    cfg.model = 'gpt-5.2';
-
-    const client = newFromConfig(cfg);
-
-    expect(client.name()).toBe('copilot-cli');
-    expect(client.model()).toBe('gpt-5.2');
-
-    const mod = await import('./copilotCli.js');
-    expect(vi.mocked(mod.assertCopilotCliAvailable)).toHaveBeenCalledWith('copilot');
   });
 });

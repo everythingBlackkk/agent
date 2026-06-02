@@ -38,7 +38,6 @@ describe('config', () => {
     cfg.model = 'qwen2.5:7b';
     cfg.codexCli.timeoutMs = 90_000;
     cfg.geminiCli.timeoutMs = 80_000;
-    cfg.copilotCli.effort = 'medium';
     cfg.mcp_servers = [{ name: 'browser', command: 'npx', args: ['-y', '@browsermcp/mcp@latest'] }];
     await save(cfg);
     const reloaded = load();
@@ -46,7 +45,6 @@ describe('config', () => {
     expect(reloaded.model).toBe('qwen2.5:7b');
     expect(reloaded.codexCli.timeoutMs).toBe(90_000);
     expect(reloaded.geminiCli.timeoutMs).toBe(80_000);
-    expect(reloaded.copilotCli.effort).toBe('medium');
     expect(reloaded.mcp_servers[0]?.command).toBe('npx');
   });
 
@@ -69,13 +67,6 @@ describe('config', () => {
     cfg.geminiCli.command = 'gemini && whoami';
     await save(cfg);
     expect(() => load()).toThrow(/geminiCli\.command/);
-  });
-
-  it('rejects shell-meta in copilotCli.command', async () => {
-    const cfg = defaultConfig();
-    cfg.copilotCli.command = 'copilot && whoami';
-    await save(cfg);
-    expect(() => load()).toThrow(/copilotCli\.command/);
   });
 
   it('rejects pipe in plugin command', async () => {

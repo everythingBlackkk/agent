@@ -9,15 +9,7 @@ import { z } from 'zod';
 
 // ---------- Schema ----------
 
-const Backend = z.enum([
-  '',
-  'ollama',
-  'lmstudio',
-  'openai-compat',
-  'codex-cli',
-  'gemini-cli',
-  'copilot-cli',
-]);
+const Backend = z.enum(['', 'ollama', 'lmstudio', 'openai-compat', 'codex-cli', 'gemini-cli']);
 export type Backend = z.infer<typeof Backend>;
 
 const CodexCliConfig = z.object({
@@ -39,17 +31,6 @@ const GeminiCliConfig = z.object({
   workingDirectory: z.string().default(''),
 });
 export type GeminiCliConfig = z.infer<typeof GeminiCliConfig>;
-
-const CopilotCliConfig = z.object({
-  command: z.string().min(1).refine(noShellMeta, {
-    message: 'copilotCli.command must not contain shell metacharacters',
-  }),
-  extraArgs: z.array(z.string()).default([]),
-  timeoutMs: z.number().int().positive().default(120000),
-  workingDirectory: z.string().default(''),
-  effort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
-});
-export type CopilotCliConfig = z.infer<typeof CopilotCliConfig>;
 
 const MCPServerConfig = z.object({
   name: z.string().min(1),
@@ -92,13 +73,6 @@ const ConfigSchema = z.object({
     extraArgs: [],
     timeoutMs: 120000,
     workingDirectory: '',
-  }),
-  copilotCli: CopilotCliConfig.default({
-    command: 'copilot',
-    extraArgs: [],
-    timeoutMs: 120000,
-    workingDirectory: '',
-    effort: 'medium',
   }),
   skills_dirs: z.array(z.string()).default([]),
   // Skill names the user has disabled via /skills. Hidden from the system
