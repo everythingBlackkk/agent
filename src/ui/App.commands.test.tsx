@@ -52,6 +52,7 @@ let agent: Agent;
 let runSpy: ReturnType<typeof vi.fn>;
 let setYolo: ReturnType<typeof vi.fn>;
 let applyProvider: ReturnType<typeof vi.fn>;
+let readConfig: AppProps['readConfig'];
 let mounted: ReturnType<typeof render> | null = null;
 
 function makeProps(): AppProps {
@@ -59,7 +60,7 @@ function makeProps(): AppProps {
     agent,
     bannerData,
     parentSignal: new AbortController().signal,
-    readConfig: () => ({ backend: 'ollama', baseURL: '', apiKey: '', model: 'stub-model' }),
+    readConfig,
     applyProvider,
     setYolo,
   };
@@ -99,7 +100,9 @@ beforeEach(() => {
   agent.run = runSpy as unknown as Agent['run'];
   setYolo = vi.fn();
   applyProvider = vi.fn(async () => {});
+  readConfig = () => ({ backend: 'ollama', baseURL: '', apiKey: '', model: 'stub-model' });
   vi.mocked(listModels).mockClear();
+  vi.mocked(listModels).mockResolvedValue(['qwen2.5-coder:14b', 'llama3.1:8b']);
 });
 
 afterEach(() => {
@@ -169,6 +172,9 @@ describe('UI slash commands (terminal integration)', () => {
     await submit(mounted.stdin, '/provider');
     const frame = mounted.lastFrame() ?? '';
     expect(frame).toMatch(/backend|Ollama/i);
+    expect(frame).toContain('Codex CLI');
+    expect(frame).toContain('Gemini CLI');
+    expect(frame).toContain('Copilot CLI');
     expect(runSpy).not.toHaveBeenCalled();
   });
 
@@ -216,6 +222,50 @@ describe('UI slash commands (terminal integration)', () => {
     expect(runSpy.mock.calls[0][3]).toEqual({ tools: false });
     expect(mounted.lastFrame()).toContain('/plan test gobus.net');
     expect(mounted.lastFrame()).toContain('planning only');
+  });
+
+  it('/model list opens a fixed picker for codex-cli', async () => {
+    readConfig = () => ({ backend: 'codex-cli', baseURL: '', apiKey: '', model: 'gpt-5.4-mini' });
+    vi.mocked(listModels).mockResolvedValueOnce(['gpt-5.4-mini']);
+    mounted = renderApp();
+    await tick();
+
+    await submit(mounted.stdin, '/model list');
+    await tick();
+
+    expect(mounted.lastFrame()).toContain('Select model for Codex CLI');
+    expect(mounted.lastFrame()).toContain('gpt-5.4-mini');
+  });
+
+  it('/model rejects unsupported codex-cli models', async () => {
+    readConfig = () => ({ backend: 'codex-cli', baseURL: '', apiKey: '', model: 'gpt-5.4-mini' });
+    mounted = renderApp();
+    await tick();
+
+    await submit(mounted.stdin, '/model gpt-5.3-codex');
+    await tick();
+
+    expect(mounted.lastFrame()).toContain('codex-cli currently supports: gpt-5.4-mini.');
+    expect(applyProvider).not.toHaveBeenCalled();
+  });
+
+  it('/model normalizes friendly copilot model names', async () => {
+    readConfig = () => ({ backend: 'copilot-cli', baseURL: '', apiKey: '', model: 'gpt-5.2' });
+    vi.mocked(listModels).mockResolvedValueOnce([
+      'gpt-5.2-codex',
+      'gpt-5.2',
+      'gpt-5.4-mini',
+      'gpt-5-mini',
+      'claude-haiku-4.5',
+    ]);
+    mounted = renderApp();
+    await tick();
+
+    await submit(mounted.stdin, '/model GPT-5 mini');
+    await tick();
+
+    expect(applyProvider).toHaveBeenCalledWith({ backend: 'copilot-cli', model: 'gpt-5-mini' });
+    expect(mounted.lastFrame()).toContain('model set to gpt-5-mini');
   });
 
   it('/plan without args plans from current context', async () => {

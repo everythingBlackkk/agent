@@ -7,6 +7,11 @@
 PentesterFlow turns a scoped security objective into a tool-using workflow for
 recon, vulnerability testing, verification, and report-ready findings.
 
+This repository is a fork of
+[PentesterFlow/agent](https://github.com/PentesterFlow/agent). This fork keeps
+the upstream terminal agent and adds extra CLI-backend support such as Codex
+CLI, Gemini CLI, and Copilot CLI integration.
+
 <br/>
 
 [![build](https://img.shields.io/github/actions/workflow/status/PentesterFlow/agent/ci.yml?branch=main&label=build&logo=github)](https://github.com/PentesterFlow/agent/actions)
@@ -60,12 +65,23 @@ step is visible, reproducible, and easy to audit.
 > agent can run shell commands, make HTTP requests, edit files, and drive browser
 > capture tools after approval.
 
+## Fork Notes
+
+- Upstream project: [PentesterFlow/agent](https://github.com/PentesterFlow/agent)
+- Fork repository: [everythingBlackkk/agent](https://github.com/everythingBlackkk/agent)
+- Fork-specific additions:
+  - Codex CLI backend support
+  - Gemini CLI backend support
+  - Copilot CLI backend support
+  - `--cli` and `--cli-mod` shortcuts for local agent CLIs
+  - Extra help text and terminal run examples for CLI-backed models
+
 ## Core
 
 | Area | What PentesterFlow provides |
 |---|---|
 | Agent loop | Plan, act, observe, verify, and report across one scoped task. |
-| Model backends | Ollama, LM Studio, and OpenAI-compatible APIs. |
+| Model backends | Ollama, LM Studio, OpenAI-compatible APIs, and experimental Codex / Gemini / Copilot CLI execution. |
 | Tooling | Shell/Bash, HTTP, file tools, search, browser capture, MCP, and finding confirmation. |
 | Skills | Markdown playbooks for recon, web vulnerabilities, SSRF, SSTI, JWT, GraphQL, race testing, takeover checks, Supabase, and deserialization. |
 | Human control | Permission prompts with allow once, allow session, deny, and explicit YOLO mode for labs. |
@@ -84,8 +100,41 @@ step is visible, reproducible, and easy to audit.
 
 ## Install
 
-The installers download the latest standalone binary for your OS and verify the
-published SHA-256 checksum when available.
+For this fork, the simplest install path is cloning the fork, building it
+locally, and either running the built CLI directly or linking `pentesterflow`
+into your shell `PATH`.
+
+### Install This Fork From GitHub
+
+```sh
+git clone https://github.com/everythingBlackkk/agent.git
+cd agent
+npm install
+npm run build
+```
+
+### Run In Terminal Without Global Install
+
+```sh
+cd /path/to/agent
+node dist/cli.js --help
+node dist/cli.js --cli codex
+node dist/cli.js --cli gemini --cli-mod gemini-3-flash-preview
+node dist/cli.js --cli copilot --cli-mod gpt-5.2
+```
+
+### Install `pentesterflow` Command Globally
+
+```sh
+cd /path/to/agent
+npm link
+pentesterflow --help
+```
+
+The original upstream installers download the latest standalone binary for the
+upstream project and verify the published SHA-256 checksum when available.
+
+### Upstream Installer Reference
 
 ```sh
 # macOS / Linux
@@ -116,13 +165,19 @@ You can also download binaries directly from
 ## Quickstart
 
 ```sh
-# 1. Pull a capable local model
-ollama pull qwen2.5-coder:32b
+# 1. Build or link this fork
+git clone https://github.com/everythingBlackkk/agent.git
+cd agent
+npm install
+npm run build
 
-# 2. Launch PentesterFlow
-pentesterflow
+# 2. Launch PentesterFlow from the build
+node dist/cli.js --cli codex
 
-# 3. Set scope, then describe the task
+# 3. Or after npm link, launch it directly
+#    pentesterflow --cli codex
+
+# 4. Set scope, then describe the task
 #    /target https://app.example.com
 #    test the orders API for IDOR and broken access control
 ```
@@ -141,6 +196,21 @@ pentesterflow --backend openai-compat \
   --base-url https://api.example.com/v1 \
   --api-key sk-...
 
+# Experimental: Codex CLI backend
+pentesterflow --backend codex-cli
+pentesterflow --backend codex-cli --model gpt-5.4-mini
+
+# Experimental: CLI aliases
+pentesterflow --cli codex
+pentesterflow --cli codex --cli-mod gpt-5.4-mini
+pentesterflow --cli gemini --cli-mod gemini-3-flash-preview
+pentesterflow --cli gemini --cli-mod gemini-3.1-pro-preview
+pentesterflow --cli copilot --cli-mod gpt-5.2-codex
+pentesterflow --cli copilot --cli-mod gpt-5.2
+pentesterflow --cli copilot --cli-mod gpt-5.4-mini
+pentesterflow --cli copilot --cli-mod gpt-5-mini
+pentesterflow --cli copilot --cli-mod claude-haiku-4.5
+
 # Enable browser-capture tools for this session
 pentesterflow --browser
 
@@ -155,8 +225,9 @@ pentesterflow --dangerously-skip-permissions
 
 | Flag | Description |
 |---|---|
-| `--backend ollama\|lmstudio\|openai-compat` | Select the LLM backend. |
-| `--model <id>` | Set the model id. |
+| `--backend ollama\|lmstudio\|openai-compat\|codex-cli\|gemini-cli\|copilot-cli` | Select the LLM backend. |
+| `--cli codex\|gemini\|copilot` | Alias for the supported local agent CLIs. |
+| `--cli-mod <id>` / `--model <id>` | Set the model id for the active backend or CLI. |
 | `--base-url <url>` / `--api-key <key>` | Configure an OpenAI-compatible backend. |
 | `--skills <dirs>` | Load extra skill directories. |
 | `--resume <session-id>` | Resume a saved session. |
@@ -176,7 +247,7 @@ pentesterflow --dangerously-skip-permissions
 |---|---|
 | `/help` | Show keybindings and command reference. |
 | `/provider` | Pick a backend and model interactively. |
-| `/model <id>` / `/model list` | Switch model or list available backend models. |
+| `/model <id>` / `/model list` | Switch model or list available backend models when the backend exposes a catalog. |
 | `/plan [objective]` | Start a plan-only turn without tool execution. |
 | `/target <url>` | Set or clear the engagement base URL. |
 | `/skills [enable\|disable\|new <name>]` | Manage skills or scaffold a new skill. |
@@ -286,6 +357,92 @@ PENTESTERFLOW_DEBUG_SESSION=1 PENTESTERFLOW_DEBUG_SESSION_PATH=/tmp/pf-debug.jso
 Debug session logs include prompts, assistant events, tool calls, tool results,
 errors, and shutdown markers. Treat them as sensitive because they can contain
 target data, command output, and copied request material.
+
+### CLI Backends
+
+PentesterFlow can use these local agent CLIs as experimental model backends:
+
+- `codex-cli` via `codex exec`
+- `gemini-cli` via `gemini --prompt`
+- `copilot-cli` via `copilot --prompt`
+
+Example config:
+
+```json
+{
+  "backend": "codex-cli",
+  "model": "gpt-5.4-mini",
+  "codexCli": {
+    "command": "codex",
+    "extraArgs": [],
+    "timeoutMs": 120000,
+    "workingDirectory": ""
+  },
+  "geminiCli": {
+    "command": "gemini",
+    "extraArgs": [],
+    "timeoutMs": 120000,
+    "workingDirectory": ""
+  },
+  "copilotCli": {
+    "command": "copilot",
+    "extraArgs": [],
+    "timeoutMs": 120000,
+    "workingDirectory": "",
+    "effort": "medium"
+  }
+}
+```
+
+- Codex CLI must already be installed and authenticated.
+- Gemini CLI must already be installed and authenticated.
+- Copilot CLI must already be installed and authenticated.
+- PentesterFlow currently uses these validated CLI model ids:
+  - `codex-cli`: `gpt-5.4-mini`
+  - `gemini-cli`: `gemini-3-flash-preview`, `gemini-3.1-pro-preview`
+  - `copilot-cli`: `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.4-mini`, `gpt-5-mini`, `claude-haiku-4.5`
+- PentesterFlow still owns testing scope, approvals, shell execution, HTTP requests, and file edits.
+- These backends wrap the CLIs with a strict prompt contract and read-only or no-tool modes, but the CLIs are themselves agentic, so treat this integration as experimental.
+- Do not enable Codex, Gemini, or Copilot dangerous / YOLO modes outside isolated labs.
+
+### Cli Support now
+
+```sh
+pentesterflow --cli codex
+pentesterflow --cli codex --cli-mod gpt-5.4-mini
+pentesterflow --cli gemini --cli-mod gemini-3-flash-preview
+pentesterflow --cli gemini --cli-mod gemini-3.1-pro-preview
+pentesterflow --cli copilot --cli-mod gpt-5.2-codex
+pentesterflow --cli copilot --cli-mod gpt-5.2
+pentesterflow --cli copilot --cli-mod gpt-5.4-mini
+pentesterflow --cli copilot --cli-mod gpt-5-mini
+pentesterflow --cli copilot --cli-mod claude-haiku-4.5
+```
+
+Direct built-entry form:
+
+```sh
+node dist/cli.js --cli codex
+node dist/cli.js --cli codex --cli-mod gpt-5.4-mini
+node dist/cli.js --cli gemini --cli-mod gemini-3-flash-preview
+node dist/cli.js --cli gemini --cli-mod gemini-3.1-pro-preview
+node dist/cli.js --cli copilot --cli-mod gpt-5.2-codex
+node dist/cli.js --cli copilot --cli-mod gpt-5.2
+node dist/cli.js --cli copilot --cli-mod gpt-5.4-mini
+node dist/cli.js --cli copilot --cli-mod gpt-5-mini
+node dist/cli.js --cli copilot --cli-mod claude-haiku-4.5
+```
+
+### Troubleshooting
+
+- `Codex CLI was not found in PATH. Install and sign in to Codex CLI first.`: install Codex CLI and ensure `codex` resolves in your shell `PATH`.
+- `Gemini CLI was not found in PATH. Install and sign in to Gemini CLI first.`: install Gemini CLI and ensure `gemini` resolves in your shell `PATH`.
+- `Copilot CLI was not found in PATH. Install and sign in to Copilot CLI first.`: install Copilot CLI and ensure `copilot` resolves in your shell `PATH`.
+- `codex-cli exited non-zero`: run `codex login` or `codex doctor`, then retry.
+- `gemini-cli timed out`: raise `geminiCli.timeoutMs` in `~/.pentesterflow/config.json`.
+- `copilot-cli timed out`: raise `copilotCli.timeoutMs` in `~/.pentesterflow/config.json`.
+- `model not supported`: use one of the validated CLI model ids listed above.
+- `gpt-4.1` on Copilot CLI: the local Copilot CLI in this environment rejected `gpt-4.1`, so it is not enabled in this build.
 
 ## Develop
 

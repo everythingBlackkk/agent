@@ -3,6 +3,7 @@
 // chooses Ollama / LM Studio / openai-compat.
 
 import type { Backend } from '../config/config.js';
+import { isCliBackend, modelsForCliBackend } from './cliModels.js';
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 
@@ -10,6 +11,9 @@ const DEFAULT_BASE_URL: Record<Exclude<Backend, ''>, string> = {
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234/v1',
   'openai-compat': '',
+  'codex-cli': '',
+  'gemini-cli': '',
+  'copilot-cli': '',
 };
 
 /**
@@ -28,6 +32,7 @@ export async function listModels(
   signal?: AbortSignal,
 ): Promise<string[]> {
   const b: Exclude<Backend, ''> = backend === '' ? 'ollama' : backend;
+  if (isCliBackend(b)) return modelsForCliBackend(b);
   const base = baseURL || DEFAULT_BASE_URL[b];
   if (!base) throw new Error(`${b} backend requires a base URL`);
 

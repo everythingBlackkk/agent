@@ -11,6 +11,7 @@ import type { Agent, AgentRunOptions } from '../agent/agent.js';
 import { type AgentEvent, MaxStepsError } from '../agent/events.js';
 import { findActiveMention, listMentionDir, parseMentionPath } from '../agent/mentions.js';
 import type { Backend } from '../config/config.js';
+import { modelsForCliBackend, normalizeCliModel } from '../llm/cliModels.js';
 import { listModels } from '../llm/models.js';
 import type { SessionDebugLog } from '../logger/sessionDebug.js';
 import { renderSkillTemplate } from '../skills/template.js';
@@ -821,6 +822,22 @@ function handleSlash(
         });
         return true;
       }
+      let requestedModel = m;
+      if (
+        cur.backend === 'codex-cli' ||
+        cur.backend === 'gemini-cli' ||
+        cur.backend === 'copilot-cli'
+      ) {
+        try {
+          requestedModel = normalizeCliModel(cur.backend, m);
+        } catch (err) {
+          dispatch({
+            type: 'append',
+            entry: { kind: 'error', text: (err as Error).message },
+          });
+          return true;
+        }
+      }
       // Validate the id against the live backend catalog before swapping
       // the client. A typo here used to persist into config.json and the
       // agent would fail on the next chat with a confusing 404; now the
@@ -840,24 +857,24 @@ function handleSlash(
             },
           });
         }
-        if (known.length > 0 && !known.includes(m)) {
-          const suggestion = suggestClosest(m, known);
+        if (known.length > 0 && !known.includes(requestedModel)) {
+          const suggestion = suggestClosest(requestedModel, known);
           dispatch({
             type: 'append',
             entry: {
               kind: 'error',
               text: suggestion
-                ? `model "${m}" not found on backend. did you mean: ${suggestion}?`
-                : `model "${m}" not found on backend. available: ${known.slice(0, 8).join(', ')}${known.length > 8 ? ', …' : ''}`,
+                ? `model "${requestedModel}" not found on backend. did you mean: ${suggestion}?`
+                : `model "${requestedModel}" not found on backend. available: ${known.slice(0, 8).join(', ')}${known.length > 8 ? ', …' : ''}`,
             },
           });
           return;
         }
         try {
-          await applyProvider({ backend: cur.backend, model: m });
+          await applyProvider({ backend: cur.backend, model: requestedModel });
           dispatch({
             type: 'append',
-            entry: { kind: 'system', text: `model set to ${m}` },
+            entry: { kind: 'system', text: `model set to ${requestedModel}` },
           });
         } catch (err: unknown) {
           dispatch({
@@ -965,7 +982,18 @@ function handleSlash(
 }
 
 function backendLabel(backend: Backend): string {
-  return backend === '' ? 'ollama' : backend;
+  switch (backend) {
+    case '':
+      return 'ollama';
+    case 'codex-cli':
+      return 'Codex CLI';
+    case 'gemini-cli':
+      return 'Gemini CLI';
+    case 'copilot-cli':
+      return 'Copilot CLI';
+    default:
+      return backend;
+  }
 }
 
 function buildPlanPrompt(objective: string): string {
@@ -1263,6 +1291,9 @@ function openProviderPicker(
   const labelOllama = `Ollama${cur.backend === 'ollama' || cur.backend === '' ? ' (current)' : ''}`;
   const labelLM = `LM Studio${cur.backend === 'lmstudio' ? ' (current)' : ''}`;
   const labelOAI = `OpenAI-compatible${cur.backend === 'openai-compat' ? ' (current)' : ''}`;
+  const labelCodex = `Codex CLI${cur.backend === 'codex-cli' ? ' (current)' : ''}`;
+  const labelGemini = `Gemini CLI${cur.backend === 'gemini-cli' ? ' (current)' : ''}`;
+  const labelCopilot = `Copilot CLI${cur.backend === 'copilot-cli' ? ' (current)' : ''}`;
 
   const req: AskRequest = {
     question: {
@@ -1275,6 +1306,18 @@ function openProviderPicker(
           label: labelOAI,
           description: 'remote — needs base URL + API key (uses current config values)',
         },
+        {
+          label: labelCodex,
+          description: 'local experimental backend — uses `codex exec`',
+        },
+        {
+          label: labelGemini,
+          description: 'local experimental backend — uses `gemini --prompt` in read-only mode',
+        },
+        {
+          label: labelCopilot,
+          description: 'local experimental backend — uses `copilot --prompt` with tools disabled',
+        },
       ],
     },
     resolve: (picked) => {
@@ -1283,7 +1326,13 @@ function openProviderPicker(
         ? 'ollama'
         : picked.startsWith('LM Studio')
           ? 'lmstudio'
-          : 'openai-compat';
+          : picked.startsWith('OpenAI-compatible')
+            ? 'openai-compat'
+            : picked.startsWith('Codex CLI')
+              ? 'codex-cli'
+              : picked.startsWith('Gemini CLI')
+                ? 'gemini-cli'
+                : 'copilot-cli';
       const config = readConfig();
       // For openai-compat we need URL + key already in config.
       if (backend === 'openai-compat' && (!config.baseURL || !config.apiKey)) {
@@ -1300,6 +1349,14 @@ function openProviderPicker(
       }
       const baseURL = backend === 'openai-compat' ? config.baseURL : '';
       const apiKey = backend === 'openai-compat' ? config.apiKey : '';
+      if (backend === 'codex-cli' || backend === 'gemini-cli' || backend === 'copilot-cli') {
+        const model = modelsForCliBackend(backend)[0] ?? '';
+        void fetchAndPickModel(backend, baseURL, apiKey, dispatch, applyProvider, {
+          currentModel: config.backend === backend ? config.model || model : model,
+          successText: (picked) => `provider set to ${backend} · model ${picked}`,
+        });
+        return;
+      }
       void fetchAndPickModel(backend, baseURL, apiKey, dispatch, applyProvider);
     },
     reject: () => dispatch({ type: 'set-ask', req: null }),

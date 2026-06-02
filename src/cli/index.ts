@@ -16,6 +16,7 @@ import { CaptureStore } from '../browser/store.js';
 import * as config from '../config/config.js';
 import { CoverageStore } from '../coverage/store.js';
 import { Store as FindingsStore } from '../findings/store.js';
+import { cliBackendFromKind } from '../llm/cliModels.js';
 import * as llmFactory from '../llm/factory.js';
 import { modelReliabilityWarning } from '../llm/modelWarnings.js';
 import { detectOllamaContextWindow, probeToolSupport } from '../llm/probe.js';
@@ -61,6 +62,8 @@ interface ParsedFlags {
   showVersion: boolean;
   showHelp: boolean;
   backend: string;
+  cli: string;
+  cliModel: string;
   model: string;
   baseURL: string;
   apiKey: string;
@@ -83,6 +86,8 @@ function parseFlags(argv: string[]): ParsedFlags {
     showVersion: false,
     showHelp: false,
     backend: '',
+    cli: '',
+    cliModel: '',
     model: '',
     baseURL: '',
     apiKey: '',
@@ -113,6 +118,12 @@ function parseFlags(argv: string[]): ParsedFlags {
         break;
       case '--backend':
         out.backend = next();
+        break;
+      case '--cli':
+        out.cli = next();
+        break;
+      case '--cli-mod':
+        out.cliModel = next();
         break;
       case '--model':
         out.model = next();
@@ -204,7 +215,16 @@ async function main(): Promise<number> {
 
   // Config.
   let cfg = config.load();
+  if (flags.cli) {
+    const mapped = cliBackendFromKind(flags.cli);
+    if (!mapped) {
+      process.stderr.write(`unknown cli: ${flags.cli}\n`);
+      return 1;
+    }
+    cfg = { ...cfg, backend: mapped };
+  }
   if (flags.backend) cfg = { ...cfg, backend: flags.backend as config.Config['backend'] };
+  if (flags.cliModel) cfg.model = flags.cliModel;
   if (flags.model) cfg.model = flags.model;
   if (flags.baseURL) cfg.base_url = flags.baseURL;
   if (flags.apiKey) cfg.api_key = flags.apiKey;
@@ -657,6 +677,12 @@ function providerLabel(b: string): string {
       return 'LM Studio';
     case 'openai-compat':
       return 'OpenAI-compatible';
+    case 'codex-cli':
+      return 'Codex CLI';
+    case 'gemini-cli':
+      return 'Gemini CLI';
+    case 'copilot-cli':
+      return 'Copilot CLI';
     default:
       return b;
   }
@@ -673,6 +699,12 @@ function defaultEndpoint(b: string): string {
       return 'http://localhost:11434';
     case 'lmstudio':
       return 'http://localhost:1234/v1';
+    case 'codex-cli':
+      return 'codex exec';
+    case 'gemini-cli':
+      return 'gemini --prompt';
+    case 'copilot-cli':
+      return 'copilot --prompt';
     default:
       return '';
   }
@@ -720,7 +752,9 @@ Usage:
   pentesterflow [flags]
 
 Flags:
-  --backend ollama|lmstudio|openai-compat
+  --backend ollama|lmstudio|openai-compat|codex-cli|gemini-cli|copilot-cli
+  --cli codex|gemini|copilot
+  --cli-mod <id>             alias for the model used with --cli
   --model <id>
   --base-url <url>
   --api-key <key>
@@ -737,6 +771,17 @@ Flags:
   --debug-session           write a complete JSONL session debug log
   --debug-session-path <p>  custom path for --debug-session
   --version / --help
+
+Cli Support now:
+  pentesterflow --cli codex
+  pentesterflow --cli codex --cli-mod gpt-5.4-mini
+  pentesterflow --cli gemini --cli-mod gemini-3-flash-preview
+  pentesterflow --cli gemini --cli-mod gemini-3.1-pro-preview
+  pentesterflow --cli copilot --cli-mod gpt-5.2-codex
+  pentesterflow --cli copilot --cli-mod gpt-5.2
+  pentesterflow --cli copilot --cli-mod gpt-5.4-mini
+  pentesterflow --cli copilot --cli-mod gpt-5-mini
+  pentesterflow --cli copilot --cli-mod claude-haiku-4.5
 
 In the TUI: Enter send · Esc cancel turn · Ctrl-C quit · mouse-wheel scroll
 Slash: /help /plan /clear /reset /exit /target /maxsteps /thinking /update

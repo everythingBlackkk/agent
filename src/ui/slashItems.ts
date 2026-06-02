@@ -11,7 +11,8 @@ export const SLASH_ITEMS: SlashItem[] = [
   { name: '/help', description: 'show keybindings + slash commands' },
   {
     name: '/provider',
-    description: 'interactive picker: select LLM backend, then a model from its catalog',
+    description:
+      'interactive picker: select LLM backend, then a model when the backend exposes a catalog',
   },
   { name: '/model', args: '<id|list>', description: 'switch model or list backend models' },
   { name: '/plan', args: '[objective]', description: 'plan-only mode without tools' },
