@@ -84,12 +84,25 @@ export class CopilotCliClient implements Client, Pinger {
       notFoundMessage: COPILOT_NOT_FOUND,
       errorLabel: 'copilot-cli',
     });
-    return parseCliBackendResponse(extractAssistantContent(stdout), 'copilot-cli');
+    return parseCopilotAssistantContent(extractAssistantContent(stdout));
   }
 }
 
 export function assertCopilotCliAvailable(command: string): void {
   assertCliBinaryAvailable(command, COPILOT_NOT_FOUND, ['--help'], 'copilot-cli preflight');
+}
+
+export function parseCopilotAssistantContent(content: string): import('./types.js').ChatResponse {
+  try {
+    return parseCliBackendResponse(content, 'copilot-cli');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('invalid JSON content')) throw err;
+    return {
+      message: { role: 'assistant', content },
+      finishReason: 'stop',
+    };
+  }
 }
 
 function extractAssistantContent(stdout: string): string {
